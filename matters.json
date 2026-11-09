@@ -1,0 +1,10 @@
+[
+  {
+    "matter_id": "lease-204",
+    "intake_date": "2026-09-18",
+    "signed_document_url": "https://example.org/legal/lease-204",
+    "signed_at": "2026-09-18",
+    "deadline": "2026-09-25",
+    "follow_up_date": "2026-09-22"
+  }
+]
