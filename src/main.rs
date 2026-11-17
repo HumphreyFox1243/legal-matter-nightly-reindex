@@ -61,12 +61,16 @@ impl App {
             let retry_after = response.headers().get(RETRY_AFTER).and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<u64>().ok());
             let bytes = response.bytes().await?;
-            let envelope: Envelope = serde_json::from_slice(&bytes)
-                .map_err(|e| ServiceError::Response(e.to_string()))?;
             if status.as_u16() == 429 && attempt < 4 {
                 tokio::time::sleep(Duration::from_secs(retry_after.unwrap_or(1 << attempt).min(60))).await;
                 continue;
             }
+            if path == "/v1/embeddings" && status.is_success() {
+                return serde_json::from_slice(&bytes)
+                    .map_err(|e| ServiceError::Response(e.to_string()));
+            }
+            let envelope: Envelope = serde_json::from_slice(&bytes)
+                .map_err(|e| ServiceError::Response(e.to_string()))?;
             if !envelope.ok {
                 let error = envelope.error.unwrap_or(Value::Null);
                 return Err(ServiceError::Upstream {
@@ -124,13 +128,13 @@ async fn reindex(State(app): State<Arc<App>>) -> Result<Json<ReindexResult>, Ser
             .ok_or_else(|| ServiceError::Response("scrape content missing".into()))?;
         // The same credential and base URL connect crawling, embedding, and indexing.
         let embedding = app.call(Method::POST, "/v1/embeddings",
-            json!({"model": "text-embedding-3-small", "input": content}), None).await?;
+            json!({"model": "text-embedding-v4", "input": content, "dimensions": 1536}), None).await?;
         let vector = embedding.pointer("/data/0/embedding")
             .ok_or_else(|| ServiceError::Response("embedding missing".into()))?;
         let is_due = follow_up_due(matter, &today);
         app.call(Method::POST, "/v1/vector/upsert", json!({
             "collection": app.collection,
-            "vectors": [{"id": matter.matter_id, "values": vector, "metadata": {
+            "vectors": [{"id": matter.matter_id, "embedding": vector, "metadata": {
                 "intake_date": matter.intake_date, "signed_at": matter.signed_at,
                 "deadline": matter.deadline, "follow_up_date": matter.follow_up_date,
                 "follow_up_due": is_due, "source": matter.signed_document_url
